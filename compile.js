@@ -41,7 +41,7 @@ function writeMessage(ctx, options) {
         code += compileExport(ctx, options) + ' {};\n\n';
 
         code += name + '.read = function (pbf, end) {\n';
-        code += '    return pbf.readFields(' + name + '._readField, ' + compileDest(ctx) + ', end);\n';
+        code += '    return pbf.readFields(' + name + '._readField, {}, end);\n';
         code += '};\n';
         code += name + '._readField = function (tag, obj, pbf) {\n';
 
@@ -50,19 +50,18 @@ function writeMessage(ctx, options) {
             var readCode = compileFieldRead(ctx, field);
             var packed = willSupportPacked(ctx, field);
             code += '    ' + (i ? 'else if' : 'if') +
-                ' (tag === ' + field.tag + ') ' +
-                (field.type === 'map' ? ' { ' : '') +
+                ' (tag === ' + field.tag + ') { ' +
                 (
                     field.type === 'map' ? compileMapRead(readCode, field.name, numRepeated++) :
-                    field.repeated && !packed ? 'obj.' + field.name + '.push(' + readCode + ')' :
-                    field.repeated && packed ? readCode : 'obj.' + field.name + ' = ' + readCode
+                    field.repeated && !packed ? 'if (!Object.prototype.hasOwnProperty.call(obj, \'' + field.name + '\')) { obj.' + field.name + ' = []; } obj.' + field.name + '.push(' + readCode + ')' :
+                    field.repeated && packed ? 'obj.' + field.name + ' = []; ' + readCode : 'obj.' + field.name + ' = ' + readCode
                 );
 
             if (field.oneof) {
                 code += ', obj.' + field.oneof + ' = ' + JSON.stringify(field.name);
             }
 
-            code += ';' + (field.type === 'map' ? ' }' : '') + '\n';
+            code += '; }\n';
         }
         code += '};\n';
     }
@@ -92,16 +91,6 @@ function writeEnum(ctx, options) {
 function compileExport(ctx, options) {
     var exportsVar = options.exports || 'exports';
     return (ctx._root ? 'var ' + ctx._name + ' = ' + exportsVar + '.' : '') + ctx._name + ' =';
-}
-
-function compileDest(ctx) {
-    var props = {};
-    for (var i = 0; i < ctx._proto.fields.length; i++) {
-        var field = ctx._proto.fields[i];
-        props[field.name + ': ' + JSON.stringify(ctx._defaults[field.name])] = true;
-        if (field.oneof) props[field.oneof + ': null'] = true;
-    }
-    return '{' + Object.keys(props).join(', ') + '}';
 }
 
 function isEnum(type) {
@@ -367,20 +356,7 @@ function buildDefaults(ctx, syntax) {
 }
 
 function getDefaultWriteTest(ctx, field) {
-    var def = ctx._defaults[field.name];
-    var type = getType(ctx, field);
-    var code = '    if (obj.' + field.name;
-
-    if (!field.repeated && (!type || !type._proto.fields)) {
-        if (def === undefined || def) {
-            code += ' != undefined';
-        }
-        if (def) {
-            code += ' && obj.' + field.name + ' !== ' + JSON.stringify(def);
-        }
-    }
-
-    return code + ') ';
+    return '    if (obj.' + field.name + ' !== undefined && obj.' + field.name + ' !== null) ';
 }
 
 function isPacked(field) {
